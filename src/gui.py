@@ -2,6 +2,7 @@ import argparse
 import datetime as dt
 import json
 import os
+import stat
 import sys
 from typing import List
 
@@ -47,6 +48,41 @@ straight_vertices, front_vertices, circle_vertices = 10, 10, 20
 draw_modes = ['off', 'point cloud', 'grid']
 APP_NAME = 'GCS_with_Uncertainties'
 TIME_WARNING_COLOR = '#c62828'
+
+
+def create_application():
+    """Configure the installed Qt plugins immediately before creating the GUI."""
+    existing = QtWidgets.QApplication.instance()
+    if existing is not None:
+        return existing
+    loader = None
+    if sys.platform == 'darwin':
+        # Use the plugins belonging to the imported PyQt, regardless of paths
+        # inherited from an IDE, another environment, or an earlier terminal.
+        plugins = Path(QtCore.__file__).resolve().parent / 'Qt5' / 'plugins'
+        cocoa = plugins / 'platforms' / 'libqcocoa.dylib'
+        if not cocoa.is_file():
+            raise RuntimeError('The macOS Qt plugin is missing: {}. Repair .venv with '
+                               'python -m pip install --force-reinstall --no-deps '
+                               'PyQt5-Qt5==5.15.19'.format(cocoa))
+        # Qt's plugin scanner skips files marked hidden by macOS. Do this at
+        # GUI creation, after imports, rather than relying on earlier repairs.
+        for path in [plugins, *plugins.rglob('*')]:
+            flags = path.stat().st_flags
+            if flags & stat.UF_HIDDEN:
+                os.chflags(path, flags & ~stat.UF_HIDDEN)
+        os.environ['QT_PLUGIN_PATH'] = str(plugins)
+        os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = str(cocoa.parent)
+        QtCore.QCoreApplication.setLibraryPaths([str(plugins)])
+        # Resolve dependencies now so an installation error is reported as a
+        # Python exception rather than an uncatchable QApplication abort.
+        loader = QtCore.QPluginLoader(str(cocoa))
+        if not loader.load():
+            raise RuntimeError('Cannot load the macOS Qt plugin {}: {}'.format(cocoa, loader.errorString()))
+    app = QtWidgets.QApplication(sys.argv)
+    app._platform_plugin_loader = loader
+    return app
+
 
 # disable sunpy warnings
 log.setLevel('ERROR')
@@ -856,7 +892,7 @@ def main():
     parser.add_argument('-histereo', type=str, default='HI', choices=['HI'],
                         help='Which coronagraph to use at HISTEREO.')
     args = parser.parse_args()
-    qapp = QtWidgets.QApplication(sys.argv)
+    qapp = create_application()
     app = GCSGui(args.date, args.spacecraft, args.running_difference, detector_stereo=args.stereo,
                  detector_soho=args.soho,detector_histereo=args.histereo)
     app.show()

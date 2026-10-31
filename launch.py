@@ -1,7 +1,30 @@
-"""Edit EVENT below, then run: python launch.py"""
+"""Edit EVENT below, then run: .venv/bin/python launch.py"""
 import argparse
 import json
+import os
 from pathlib import Path
+import sys
+
+
+def use_project_environment():
+    environment = Path(__file__).resolve().parent / '.venv'
+    python = environment / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')
+    if Path(sys.prefix).resolve() != environment.resolve():
+        if not python.is_file():
+            raise SystemExit('Missing .venv. Follow the Python 3.11 setup in README.md.')
+        os.execv(str(python), [str(python), str(Path(__file__).resolve()), *sys.argv[1:]])
+    if sys.version_info[:2] != (3, 11):
+        raise SystemExit('This project requires Python 3.11 in .venv. Follow README.md to rebuild it.')
+    # Let glymur discover Homebrew OpenJPEG before importing SunPy.
+    if sys.platform == 'darwin':
+        libraries = [str(Path(prefix) / 'opt/openjpeg/lib')
+                     for prefix in ('/opt/homebrew', '/usr/local')
+                     if (Path(prefix) / 'opt/openjpeg/lib/libopenjp2.dylib').is_file()]
+        if libraries:
+            existing = os.environ.get('DYLD_FALLBACK_LIBRARY_PATH', '')
+            defaults = [str(Path.home() / 'lib'), '/usr/local/lib', '/usr/lib']
+            os.environ['DYLD_FALLBACK_LIBRARY_PATH'] = ':'.join(
+                ([existing] if existing else defaults) + libraries)
 
 
 # All times are UTC. Add as many times and observation views as you need.
@@ -54,6 +77,7 @@ EVENT = {
 
 
 def main():
+    use_project_environment()
     parser = argparse.ArgumentParser(description='Launch a GCS_with_Uncertainties time series.')
     parser.add_argument('--config', type=Path, help='Read event settings from a JSON file instead of EVENT above.')
     parser.add_argument('--check-config', action='store_true', help='Validate and print the event schedule without opening the GUI or downloading images.')

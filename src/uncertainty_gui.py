@@ -1,5 +1,6 @@
 """Optional, nonblocking uncertainty panel for the existing manual GCS GUI."""
 import csv
+from concurrent.futures.process import BrokenProcessPool
 import hashlib
 import json
 from pathlib import Path
@@ -42,13 +43,16 @@ def ensemble_selection(result):
 def completion_status(result):
     target = result['config'].get('target_accepted')
     count = len(result['accepted'])
+    recovery = ('\nA CPU worker exited; the search continued using 1 CPU.'
+                if result.get('parallel_failure') else '')
     if target is None:
         return '{}Fits tried: {} | Accepted: {}.\nChoose Save to save the fit, outlines and search results.'.format(
-            'Search cancelled. ' if result['cancelled'] else 'Search complete. ', result['tested'], count)
+            'Search cancelled. ' if result['cancelled'] else 'Search complete. ', result['tested'], count) + recovery
     reason = {'target_reached': 'Target reached.', 'proposal_limit': 'Search limit reached.',
               'cancelled': 'Search cancelled.'}[result['stop_reason']]
-    return '{} Fits tried: {} | Accepted: {} / {}.\nEnsemble: {} fits. Choose Save to save all results.'.format(
+    text = '{} Fits tried: {} | Accepted: {} / {}.\nEnsemble: {} fits. Choose Save to save all results.'.format(
         reason, result['tested'], count, target, min(target, count))
+    return text + recovery
 
 
 def candidate_design(config):
@@ -76,6 +80,7 @@ class SearchWorker(QtCore.QThread):
         self._last_overlay_preview = None
         self.cancelled = threading.Event()
         self._target_reached = threading.Event()
+        self._parallel_failure = None
 
     def report_progress(self, tried, total, accepted):
         target = self.config.get('target_accepted')
@@ -85,6 +90,8 @@ class SearchWorker(QtCore.QThread):
             text = 'Fits tried: {} | Accepted: {} / {}'.format(tried, accepted, target)
             if accepted >= target:
                 text += ' — target reached'
+        if self._parallel_failure:
+            text += '\nA CPU worker exited; continuing using 1 CPU.'
         self.progress.emit(text)
 
     def report_preview(self, reference, choices, force=False):
@@ -100,17 +107,35 @@ class SearchWorker(QtCore.QThread):
         self.preview_ready.emit(preview)
         return preview
 
-    def serial_scores(self, values, checks, baseline):
-        for index, row in enumerate(values):
+    def serial_scores(self, values, checks, baseline, start=0):
+        for index, row in enumerate(values, start=start):
             if self.cancelled.is_set() or self._target_reached.is_set():
                 break
             yield (index, *score_candidate(row, self.config, self.images, self.date,
                                           checks, baseline, project=project_boundaries))
 
+    def resilient_scores(self, values, checks, baseline, cpus, pool):
+        """Keep candidate order and completed scores when a child process exits."""
+        next_index = 0
+        try:
+            for item in parallel_scores(values, self.config, self.images, self.date,
+                    baseline, cpus, self.cancelled, pool=pool,
+                    stop_submitting=self._target_reached):
+                next_index = item[0] + 1
+                yield item
+        except BrokenProcessPool:
+            self._parallel_failure = traceback.format_exc()
+            self.progress.emit('A CPU worker exited; continuing using 1 CPU.')
+            pool.shutdown(wait=True, cancel_futures=True)
+            # Only results yielded to the caller count as processed. Retry the
+            # remaining suffix, including candidates lost with the failed pool.
+            yield from self.serial_scores(values[next_index:], checks, baseline, start=next_index)
+
     def run(self):
         pool = None
         self._target_reached.clear()
         self._last_overlay_preview = None
+        self._parallel_failure = None
         try:
             c = self.config
             checks = prepare_checks(c, self.images)
@@ -167,9 +192,7 @@ class SearchWorker(QtCore.QThread):
                 self.report_progress(tested, tested + len(values), len(accepted_records))
                 if pool is None and cpus > 1 and len(values) and not self.cancelled.is_set():
                     pool = create_scoring_pool(c, self.images, self.date, baseline, cpus)
-                scores = (parallel_scores(values, c, self.images, self.date, baseline,
-                                         cpus, self.cancelled, pool=pool,
-                                         stop_submitting=self._target_reached)
+                scores = (self.resilient_scores(values, checks, baseline, cpus, pool)
                           if cpus > 1 and len(values) and not self.cancelled.is_set()
                           else self.serial_scores(values, checks, baseline))
                 for index, score, b in scores:
@@ -196,6 +219,8 @@ class SearchWorker(QtCore.QThread):
                         if target is not None and len(accepted_records) >= target:
                             self._target_reached.set()
                     self.report_progress(tested, batch_tested + len(values), len(accepted_records))
+                if self._parallel_failure:
+                    cpus, pool = 1, None
                 complete = tested - batch_tested == len(values)
                 batches.append(dict(seed=batch_seed, proposed=batch_size, invalid_geometry=bad,
                     duplicate_proposals=batch_duplicates,
@@ -237,6 +262,8 @@ class SearchWorker(QtCore.QThread):
                               'target_reached' if target is not None and len(records) >= target else
                               'proposal_limit' if target is not None else 'fixed_budget'),
                           cpu_workers=cpus,
+                          requested_cpu_workers=requested_cpus,
+                          parallel_failure=self._parallel_failure,
                           cancelled=self.cancelled.is_set(), overlays=preview['overlays'],
                           overlay_keys=preview['overlay_keys'], overlay_parameters=preview['overlay_parameters'],
                           sampling_info=sampling_info,

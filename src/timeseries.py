@@ -1,12 +1,11 @@
 """Time navigation around the full GCS outline and uncertainty workflow."""
 import json
-import sys
 
 from PyQt5 import QtCore, QtWidgets
 
 from .event_config import DEFAULT_PARAMETERS, utc_string
 from .example import bundled_annotations, matches_bundled
-from .gui import APP_NAME, GCSGui
+from .gui import APP_NAME, GCSGui, create_application
 from .images import ImageLoader
 from .session import persist, restore_search, annotation_signature
 from .tiered_outlines import PERCENT_ALLOWANCE
@@ -242,7 +241,7 @@ class TimeSeriesController(QtCore.QObject):
 
 
 def run_event(event):
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv)
+    app = create_application()
     app.setApplicationName(APP_NAME)
     app.setQuitOnLastWindowClosed(False)
     controller = TimeSeriesController(event, app)

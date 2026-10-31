@@ -5,18 +5,43 @@ parameters. Use any number of coronagraph views and observation times.
 
 ## Install and launch
 
-Use Python 3.11 and a graphical desktop.
+Use Python 3.11 and a graphical desktop. This checkout uses `.venv`.
+Run it without activating an environment:
+
+```sh
+.venv/bin/python launch.py
+```
+
+The launcher also selects `.venv` if started with another Python. Select
+`.venv/bin/python` as your IDE interpreter. No reinstall is needed between runs.
+Immediately before creating the GUI on macOS, the app repairs hidden Qt plugin
+flags, selects the plugins from its own PyQt installation, and checks that Cocoa
+loads. It does this on every launch, including from a new VS Code terminal.
+Dependencies are pinned in `requirements.txt` to the versions tested with
+Python 3.11 on Apple Silicon macOS.
+
+For a fresh checkout with Python 3.11 installed:
+
+```sh
+python3.11 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python launch.py
+```
+
+Alternatively, use Conda to provision Python and native libraries:
 
 ```sh
 git clone https://github.com/talwindersinghphd/GCS_with_Uncertainties.git
 cd GCS_with_Uncertainties
 conda env create -f environment.yml
 conda activate GCS_with_Uncertainties
-python launch.py
+python -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python launch.py
 ```
 
-Existing environment: `python -m pip install -r requirements.txt`. JPEG2000
-reading also needs the native OpenJPEG library.
+JPEG2000 reading also needs the native OpenJPEG library. On macOS, install it
+with `brew install openjpeg`; the launcher discovers the Homebrew library.
 
 <details>
 <summary>Ubuntu/Debian display libraries</summary>
@@ -72,6 +97,9 @@ views, time and background.
 3. **Uncertainty:** choose CPUs and the target number of accepted fits, review the
    settings below, then **Run uncertainty search**. Live counters show tried and
    accepted fits. **Cancel search** keeps partial results.
+
+If a CPU worker exits unexpectedly, the search continues using one CPU and shows
+a status message. Completed candidates and accepted fits are preserved.
 
 | Setting | Meaning |
 | --- | --- |
