@@ -41,9 +41,11 @@ def use_project_environment():
 # To use C2 and C3 together, add separate 'SOHO' entries, one for each coronagraph.
 
 EVENT = {
-    'name': 'july12_2012',
+    'name': 'july04_2012',
     'times': [
-        '2012-07-12 17:54',
+        '2012-07-04 01:24',
+        # following are for event: 'name': 'july12_2012',
+        # '2012-07-12 17:54',
         # '2012-07-12 18:24',
         # '2012-07-12 18:54',
     ],
@@ -68,7 +70,8 @@ EVENT = {
         # Background mode 'raw' below skips subtraction.
         # Local FITS files need helioprojective WCS and observer metadata (see README).
     ],
-    'background': {'mode': 'fixed', 'time': '2012-07-12 16:24'},
+    # 'background': {'mode': 'fixed', 'time': '2012-07-12 16:24'}, # uncomment this for July 12th event
+    'background': {'mode': 'fixed', 'time': '2012-07-03 22:12'},
     # Alternatives: {'mode': 'running', 'minutes': 60} or {'mode': 'raw'}.
     'max_time_offset_minutes': 20,  # Show farther images with red time warnings; None disables warnings.
     'output_directory': None,  # None means sessions/<event name>/.
